@@ -225,7 +225,7 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 	float gainLimit      = 0.01f;
 	float res = (abs (Z) - am_carr_ampl) /
 	             (am_carr_ampl < gainLimit ? gainLimit : am_carr_ampl);
-//	float rr = theFilter.Pass (res);
+	float rr = theFilter.Pass (res);
 	//
 	spectrumBuffer [spectrumFillPointer] =  Z;
 	spectrumFillPointer ++;
