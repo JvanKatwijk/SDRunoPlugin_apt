@@ -71,8 +71,8 @@ std::complex<float> NcoSignal;
 	phaseError	= arg(pll_Delay);
 //	... and a pretty simple filter
 	phaseIncr = (1 - Beta) * phaseError + Beta * phaseIncr;
-	if (phaseIncr < NcoLLimit || phaseIncr > NcoHLimit) 
-	   phaseIncr = cf * 2 * M_PI / rate;
+//	if (phaseIncr < NcoLLimit || phaseIncr > NcoHLimit) 
+//	   phaseIncr = cf * 2 * M_PI / rate;
 
 	NcoPhase	+= phaseIncr;
 	if (NcoPhase >= 2 * M_PI)

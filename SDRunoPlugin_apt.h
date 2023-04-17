@@ -47,10 +47,10 @@ virtual
 	void	apt_setChannel		(const std::string &, int);
 private:
 	bandpassFIR		passbandFilter;
-	decimatingFIR		DecimatingF;
-	fftFilterHilbert        Hilbert1;
-	fftFilterHilbert        Hilbert2;
-	lowpassFIR              theFilter;
+	fftFilterHilbert	H_filter;
+	fftFilterHilbert	H2_filter;
+	bandpassFIR              theFilter;
+	decimatingFIR		Dec_filter;
 	pllC			myfm_pll;
 
 	int                     convBufferSize;
@@ -58,7 +58,7 @@ private:
 	int                     outSize;
 	std::vector<int>        mapTable_int;
 	std::vector<float>      mapTable_float;
-	std::vector<float>        convBuffer;
+	std::vector<std::complex<float>>        convBuffer;
 
 	std::mutex	        m_lock;
 	SDRunoPlugin_aptUi	m_form;
@@ -66,7 +66,7 @@ private:
 	IUnoPluginController    *m_controller;
 	void		        WorkerFunction		();
 	std::thread*	        m_worker;
-	RingBuffer<float>	inputBuffer;
+	RingBuffer<std::vector<float>>	inputBuffer;
 	std::atomic<bool> 	running;
 	int			selectedFrequency;
 	int			centerFrequency;
@@ -74,13 +74,12 @@ private:
 	                               Complex* buffer,
 	                               int          length,
 	                               bool& modified);
-	void	                AudioProcessorProcess (channel_t channel,
-	                               float* buffer,
-		                       int length,
-		                       bool& modified);
-	void	                process (std::complex<float> z);
-	void	                processSample (std::complex<float>);
-	void			processLine	();
+	void	                AudioProcessorProcess(channel_t channel,
+		float* buffer,
+		int length,	
+		bool& modified);
+	void	processSample(std::complex<float> Z);
+
 	int			findStart	(int16_t *, int, int);
 	int			findSync	(char, int16_t *, int, int);
 	int			readLine	(int16_t *, int, int);

@@ -265,14 +265,11 @@ int16_t		index;
 }
 
 bool	decimatingFIR::Pass (float z, float *z_out) {
-	if (++decimationCounter < decimationFactor) {
-	   Buffer [ip] = std::complex<float> (z, 0);
-	   ip = (ip + 1) % filterSize;
-	   return false;
+std::complex<float> t = std::complex<float> (z, 0);
+	if (Pass (t, &t)) {
+	   *z_out = real (t);
+	   return true;
 	}
-
-	decimationCounter = 0;
-	*z_out = Basic_FIR::Pass (z);
-	return true;
+	return false;
 }
 

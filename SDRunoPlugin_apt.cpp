@@ -36,6 +36,12 @@ int     length = 2;
 	   length *= 2;
 	return 2 * length;
 }
+
+static inline
+std::complex<float> cmul(std::complex<float> x, float y) {
+	return std::complex<float>(real(x) * y, imag(x) * y);
+}
+
       
 	SDRunoPlugin_apt::
 	            SDRunoPlugin_apt (IUnoPluginController& controller) :
@@ -43,32 +49,33 @@ int     length = 2;
 	                                   m_form (*this, controller),
 	                                   m_worker (nullptr),
 	                                   inputBuffer (128 * 32768),
-	                                   passbandFilter (55,
-	                                                   -15000,
-	                                                   15000,
+	                                   passbandFilter (25,
+	                                                   -20000,
+	                                                   20000,
 	                                                   INRATE),
-	                                   DecimatingF (25, 4000,
+	                                   Dec_filter (25, 4000,
 	                                                INRATE, 12),
-	                                   Hilbert1	(4096, 255),
-	                                   Hilbert2	(2048, 255),
-	                                   theFilter	(29, 3600, WORKING_RATE),
+	                                   H_filter	(4096, 255),
+	                                   H2_filter	(8192, 255),
+	                                   theFilter	(61, 0, 3000, WORKING_RATE),
 	                                   myfm_pll	(INRATE,
 	                                                 0,
-	                                                 -4 * CARRIERFREQ,  4 * CARRIERFREQ,
-	                                                 40000) {
+	                                                 -2 * CARRIERFREQ,  2 * CARRIERFREQ,
+	                                                 30000) {
 
 	m_controller	        = &controller;
 	running. store (false);
 
-//	m_controller    -> RegisterStreamProcessor (0, this);
-	m_controller    -> RegisterAudioProcessor (0, this);
-	m_controller    -> SetDemodulatorType (0,
-	                         IUnoPluginController::DemodulatorIQOUT);
-//
-//	integer decimation from 192000 -> 16000 takes 12 steps,
-//	then we interpolate to get a rate of OVER_SAMPLING * APT_RATE
-	if (m_controller -> GetAudioSampleRate(0) != 192000)
+	//	m_controller    -> RegisterStreamProcessor (0, this);
+	m_controller->RegisterAudioProcessor(0, this);
+	m_controller->SetDemodulatorType(0,
+		IUnoPluginController::DemodulatorIQOUT);
+	//
+	//	integer decimation from 192000 -> 16000 takes 12 steps,
+	//	then we interpolate to get a rate of OVER_SAMPLING * APT_RATE
+	if (m_controller->GetAudioSampleRate(0) != 192000)
 	   return;
+
 	int	selectedRate	= 16000;
 	int	outRate		= WORKING_RATE;
 	convBufferSize		= selectedRate / 20;
@@ -139,16 +146,10 @@ void    SDRunoPlugin_apt::AudioProcessorProcess (channel_t channel,
 	if (!modified) {
 	   for (int i = 0; i < length; i++) {
 	      std::complex<float> sample =
-	                   std::complex<float>( 2 * buffer [2 * i +  1],
-	                                       2 * buffer [2 * i]);
-		  sample = passbandFilter.Pass(sample);
-	      if (abs (sample) < 0.001)
-	         sample = std::complex<float> (0.001, 0.001);
-	      sample = std::complex<float> (real (sample) / abs (sample), imag (sample) / abs (sample));
-	      myfm_pll. do_pll (sample);
-	      float rr = 20 * myfm_pll. getPhaseIncr ();
-//		  rr = arg(sample);
-	      inputBuffer. putDataIntoBuffer (&rr, 1);
+	                   std::complex<float> (2 * buffer [2 * i + 1],
+	                                        2 * buffer [2 * i]);
+		  
+	      inputBuffer. putDataIntoBuffer (&sample, 1);
 	   }
 	}
 }
@@ -167,161 +168,140 @@ void	SDRunoPlugin_apt::HandleEvent (const UnoEvent& ev) {
 	}
 }
 
-static inline
-std::complex<float> cmul (std::complex<float> x, float y) {
-	return std::complex<float> (real (x) * y, imag (x) * y);
-}
 
 void	SDRunoPlugin_apt::WorkerFunction () {
 std::vector<std::complex<float>> res (outSize);
-
+std::complex<float> sample;
 	running. store (true);
 	m_form. clearScreen ();
 	m_form. clearSpectrum ();
 	m_form. clearWedge	();
 	m_form. setSynced (false);
 	while (running. load ()) {
-	   while (running. load () &&
-	               (inputBuffer. GetRingBufferReadAvailable () == 0))
+	   if (inputBuffer. GetRingBufferReadAvailable () < 1) {
 	      Sleep (1);
-	   if (!running. load ())
-	      break;
-
-	   for (int i = 0; 
-	          i < inputBuffer. GetRingBufferReadAvailable (); i ++) {
-	      float sample;
-	      inputBuffer. getDataFromBuffer (&sample, 1);
-	      if (DecimatingF. Pass (sample, &sample)) {
-	         convBuffer [convIndex ++] = sample;
-	         if (convIndex >= convBufferSize + 1) {
-	            for (int j = 0; j < outSize; j ++) {
-	               int16_t inpBase = mapTable_int [j];
-	               float   inpRatio = mapTable_float [j];
-	               float res  =
-	                     convBuffer [inpBase + 1] * inpRatio +
-	                         convBuffer [inpBase] *  (1 - inpRatio);
-				   processSample (Hilbert1.Pass (res));
-	            }
-	            convBuffer [0] = convBuffer [convBufferSize];
-	            convIndex = 1;
-	        }
-	      }
+	      continue;
 	   }
+	   inputBuffer. getDataFromBuffer (&sample, 1);
+	   if (!decoding.load())
+		   continue;
+	   sample = passbandFilter.Pass(sample);
+	   if (abs (sample) < 0.001)
+	      sample = std::complex<float> (0.001, 0.001);
+	   sample = cmul (sample, 1.0 / abs (sample));
+//
+//	handle the FM
+	   myfm_pll. do_pll (sample);
+	   float rr = myfm_pll. getPhaseIncr ();
+	   sample	= H2_filter. Pass (20 * rr);
+//
+//	Decimate in two steps
+	   if (!Dec_filter. Pass (sample, &sample))
+	      continue;
+
+	   convBuffer [convIndex ++] = sample;
+	   if (convIndex <  convBufferSize + 1) 
+	      continue;
+
+
+	   for (int j = 0; j < outSize; j ++) {
+	      int16_t inpBase = mapTable_int [j];
+	      float   inpRatio = mapTable_float [j];
+	      std::complex<float> Z =
+	                cmul (convBuffer [inpBase + 1], inpRatio) +
+	                     cmul (convBuffer [inpBase], (1 - inpRatio));
+	      processSample (theFilter. Pass (Z));
+	   }
+	   convBuffer [0] = convBuffer [convBufferSize];
+	   convIndex = 1;
 	}
-	Sleep (1000);
 }
 
-#define	DCAlpha	0.001
-//
-//	samples are "in" now, with a rate of OVER_SAMPLING * APT_RATE
-//	So, first we do the decoding
 void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
-	if (!decoding. load ())
-	   return;
-	Z = theFilter.Pass (Z);
 
-	am_carr_ampl	= (1 - carrierAlpha) * am_carr_ampl +
-	                             carrierAlpha * abs (Z);
-	float gainLimit      = 0.01f;
-	float res = (abs (Z) - am_carr_ampl) /
-	             (am_carr_ampl < gainLimit ? gainLimit : am_carr_ampl);
-	float rr = theFilter.Pass (res);
-	//
-	spectrumBuffer [spectrumFillPointer] =  Z;
+	if (!decoding.load())
+		return;
+	spectrumBuffer[spectrumFillPointer] = Z;
 	spectrumFillPointer ++;
 	if (spectrumFillPointer >= 2048) {
 	   apt_drawSpectrum ();
 	   spectrumFillPointer = 0;
 	}
 
-	amplBuffer [npos] =  rr;
+	am_carr_ampl = (1 - carrierAlpha) * am_carr_ampl +
+	                                    carrierAlpha * abs (Z);
+	float gainLimit	= 0.001f;
+	float res = (abs (Z) - am_carr_ampl) /
+                     (am_carr_ampl < gainLimit ? gainLimit : am_carr_ampl);
+	amplBuffer [npos] = 8 * res;
 	npos = (npos + 1) & mask;
 	amount ++;
 	if (amount < bufferLength) 
 	   return;
-
-//	Here we have a full buffer with samples for more than 2 APT lines
-	processLine ();
-}
-
 //
-//	If we process a line and are NOT in sync, we
-//	count the number of times we get a double sync on a line,
-//	i.e. the sync A and sync B are found,
-//	if we have 4 of them, we assume we are "in sync"
-//	When insync we check for each line the sync A and sync B
-//	if not correct, we first assume that it is a mistake,
-//	if we find a couple of lines with missing syncs we
-//	reduce the sync level
+//	searchWidth is half a linelength (including oversampling)
+	int searchWidth      = lineLength / 4;
 //
-//	We consider it a sync of the B_offset is on the right
-//	distance of the A_offset
-//
-//	The "line" - if found - is processed by another function
-void	SDRunoPlugin_apt::processLine () {
-int searchWidth      = lineLength / 4;
-int A_offset = -1, B_offset = -1, C_offset = -1;
-
+//	To avoid false positives, we first compute
+//	an offset and validate by looking at the B offset
+	int	A_offset = -1, B_offset = -1, C_offset = -1;
 	if (synced < 3) {
-	   A_offset = findSync ('A', amplBuffer.data(),
-	                            startPos, searchWidth);
+	
+	   A_offset = findSync('A', amplBuffer.data(), startPos, searchWidth);
+
 	   if (A_offset < 0) {
 	      startPos = (startPos + searchWidth) & mask;
 	      amount -= searchWidth;
 	      synced	= 0;
-	      m_form. status ("findStart failed " +
-	                                         std::to_string (synced));
 	      return;
 	   }
-//
+//	Validating is by first checking that we see the syncB
 	   B_offset = findSync ('B', amplBuffer. data (),
-	                             startPos + A_offset + lineLength / 2 - 15,
+	                             startPos + A_offset + lineLength / 2 - 10,
 	                             30);
-	   if ((B_offset < -15) || (B_offset > 15)) {
+	   m_form.status("synced =   " + std::to_string(A_offset) + " " + std::to_string (B_offset));
+
+	   if ((B_offset < 0) || (B_offset > 30)) {
 	      startPos = (startPos + searchWidth) & mask;
 	      amount -= searchWidth;
-	      m_form. status ("check (B) failed " +
-	                                         std::to_string (B_offset));
 	      synced	= 0;
 	      return;
 	   }
-	   static int xxx = 0;
+
 	   startPos = (startPos + A_offset + lineLength - 10) & mask;
 	   amount -= A_offset + lineLength - 10;
-	   synced++;
-	   xxx++;
-	   m_form.showLineNumber(xxx);
-	 
+	   synced ++;
 	   if (synced >= 3)
-	      m_form. setSynced (true);
+		   m_form.setSynced (true);
 	   return;
 	}
-	else {		// we are in sync
-	   B_offset	= -100;
-	   A_offset	= findStart (amplBuffer. data (), startPos, 20);
-	   B_offset	= findSync ('A', amplBuffer. data (), startPos, 20);
-	   
-	   if (B_offset == -1) {
-	      B_offset = 10;
-	      failures ++;
-	      if (failures > 4) {
-	         synced -= 2;
-	         m_form. setSynced (false);
-	         failures = 0;
-	         m_form. status ("Loosing sync");
-	         return;
-	      }
+//
+//	if here, we are apparently "in sync"
+	A_offset		= findStart (amplBuffer. data (),
+	                                               startPos, 20);
+	B_offset	 	= findSync ('A',  amplBuffer. data (),
+	                                               startPos, 20);
+	if (B_offset == -1) {
+	   failures ++;
+	   if (failures > 3) {
+	      synced -= 1;
+	      amount -= searchWidth;
+	      startPos = (startPos + searchWidth) & mask;
+	      failures = 0;
+		  m_form.setSynced(false);
+	      return;
 	   }
-	         
-	   m_form. status ("insync with  " + std::to_string (A_offset) +
-	                          "  "  +std::to_string (B_offset));
-	   amount	-= A_offset;
-	   startPos	= (startPos + A_offset) & mask;
-	   int inc	= readLine (amplBuffer. data (), startPos, lineno ++);
-	   startPos	= (startPos + inc - 10) % mask;
-	   amount	-= inc - 10;
+	   B_offset = 10;
 	}
+	
+	m_form.status(std::to_string(A_offset) + " " + std::to_string(B_offset));
+	amount	-= B_offset;
+	startPos	= (startPos + B_offset) & mask;
+	int inc	= readLine (amplBuffer. data (), startPos, lineno ++);
+	startPos	= (startPos + inc - 10) % mask;
+	amount	-= inc - 10;
 }
+
 //
 //	Looking at buffer [pos] and on, we check whether or not
 //	a pattern is encoded there.
@@ -432,13 +412,14 @@ std::vector<float> currentLine (pictureWidth);
 	avg /= (lineLength / OVER_SAMPLING);
 
 	for (int i = 0; i < lineLength / OVER_SAMPLING; i ++) {
-	   int val = 0;
+	   float pix = 0;
 	   for (int j = 0; j < OVER_SAMPLING; j ++)
-	      val += buffer [(pos + OVER_SAMPLING * i + j) & mask];
-	   val	/= OVER_SAMPLING;
-	   channelBuffer [lineno][i] = val;
-	   currentLine [i] = val;
+	      pix += buffer [(pos + OVER_SAMPLING * i + j) & mask];
+	   pix	/= OVER_SAMPLING;
+	   channelBuffer [lineno][i] = transl (pix, min, max, 0.0f, 255.0f);
+	   currentLine [i] = channelBuffer [lineno][i];
 	}
+	m_form. show_dumpName (std::to_string (min) + "  " + std::to_string (max));
 	m_form. showLineNumber (lineno);
 	m_form. drawLine (currentLine, lineno);
 

@@ -465,13 +465,23 @@ void	SDRunoPlugin_aptForm::showWedge		(std::vector<float> &, int) {
 
 void    SDRunoPlugin_aptForm::drawLine  (std::vector<float> &line, int lineno) {
 float v;
+float	max	= 0;
+float	min	= 10000;
+
+	for (int i = 0; i < line. size (); i ++) {
+	   if (line [i] > max)
+	      max = line [i];
+	   else
+	   if (line [i] < min)
+	      min = line [i];
+	}
 	for (int i = 0; i < line. size (); i += 2) {
 	   if (greyDifference >= 0)	// make it lighter
-	      v	= transl (line [i], 0.0f, 255.0f, greyDifference, 255);
+	      v	= transl (line [i], min, max, greyDifference, 255);
 	   else
-	      v	= transl (line [i], 0.0f, 255.0f, 0, 255 + greyDifference);
+	      v	= transl (line [i], min, max, 0, 255 + greyDifference);
 	   
-	   xBuf [lineno * aptWidth + i / 2] = v;
+		xBuf[lineno * aptWidth + i / 2] = v;
 	}
 }
 
