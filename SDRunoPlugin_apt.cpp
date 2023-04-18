@@ -24,6 +24,9 @@
 #define	START_WEDGE	(39 + 47 + 909)
 #define	WEDGE_SIZE	45
 
+#define	RfDcAlpha	(1.0 / INRATE)
+#define DCRlimit	0.01f
+
 template <typename F, typename T>
 constexpr T transl (F value, F f1, F t1, T f2, T t2) {
 	return f2 + ((t2 - f2) * (value - f1)) / (t1 - f1);
@@ -53,26 +56,27 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	                                                   -20000,
 	                                                   20000,
 	                                                   INRATE),
-	                                   Dec_filter (25, 4000,
-	                                                INRATE, 12),
+	                                   Dec48_filter (25, 20000,
+	                                                INRATE, 4),
+	                                   Dec16_filter (25, 8000,
+	                                                INRATE / 4, 3),
 	                                   H_filter	(4096, 255),
 	                                   H2_filter	(8192, 255),
-	                                   theFilter	(61, 0, 3000, WORKING_RATE),
-	                                   myfm_pll	(INRATE,
+	                                   theFilter	(61, 0, 3000,
+	                                                      WORKING_RATE),
+	                                   myfm_pll	(INRATE / 4,
 	                                                 0,
-	                                                 -2 * CARRIERFREQ,  2 * CARRIERFREQ,
+	                                                 -2 * CARRIERFREQ,
+	                                                  2 * CARRIERFREQ,
 	                                                 30000) {
 
 	m_controller	        = &controller;
 	running. store (false);
 
-	//	m_controller    -> RegisterStreamProcessor (0, this);
-	m_controller->RegisterAudioProcessor(0, this);
-	m_controller->SetDemodulatorType(0,
-		IUnoPluginController::DemodulatorIQOUT);
-	//
-	//	integer decimation from 192000 -> 16000 takes 12 steps,
-	//	then we interpolate to get a rate of OVER_SAMPLING * APT_RATE
+//	m_controller    -> RegisterStreamProcessor (0, this);
+	m_controller	-> RegisterAudioProcessor (0, this);
+	m_controller	-> SetDemodulatorType (0,
+	                            IUnoPluginController::DemodulatorIQOUT);
 	if (m_controller->GetAudioSampleRate(0) != 192000)
 	   return;
 
@@ -90,10 +94,17 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	}
 	convIndex		= 0;
 
-	fm_afc		= 0;
-	fm_cvt		= 1.0;
-	fmDcAlpha	= 0.001f;
-	K_FM		= 20;
+	outfileRate		= 11025;
+	outTable_int. resize (outfileRate);
+	outTable_float. resize (outfileRate);
+	outfileBuffer. resize (selectedRate + 1);
+	for (int i = 0; i < outfileRate; i ++) {
+	   float inVal = (float)selectedRate;
+	   outTable_int [i] = (int)(floor (i * inVal / (float)outfileRate));
+	   outTable_float [i] = i * inVal / (float)outfileRate - outTable_int [i];
+	}
+	outTableIndex	= 0;
+
 	am_carr_ampl	= 0;
 	carrierAlpha	= 0.001f;
 
@@ -115,7 +126,9 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	startPos	= 0;
 	failures	= 0;
 	lineno		= 0;
+	dumping.store(false);
 
+	RfDC		= std::complex<float> (0, 0);
 	m_controller	-> SetCenterFrequency (0, 137912500.0);
 	m_controller	-> SetVfoFrequency (0, 137912500.0);
 	m_worker        = new std::thread (&SDRunoPlugin_apt::WorkerFunction,
@@ -144,12 +157,14 @@ void    SDRunoPlugin_apt::AudioProcessorProcess (channel_t channel,
 	                                         bool& modified) {
 //	Handling IQ input, note that SDRuno interchanges I and Q elements
 	if (!modified) {
-	   for (int i = 0; i < length; i++) {
-	      std::complex<float> sample =
+	   if (decoding. load ()) {
+	      for (int i = 0; i < length; i++) {
+	         std::complex<float> sample =
 	                   std::complex<float> (2 * buffer [2 * i + 1],
 	                                        2 * buffer [2 * i]);
 		  
-	      inputBuffer. putDataIntoBuffer (&sample, 1);
+	         inputBuffer. putDataIntoBuffer (&sample, 1);
+	      }
 	   }
 	}
 }
@@ -182,28 +197,67 @@ std::complex<float> sample;
 	      Sleep (1);
 	      continue;
 	   }
+
 	   inputBuffer. getDataFromBuffer (&sample, 1);
-	   if (!decoding.load())
-		   continue;
-	   sample = passbandFilter.Pass(sample);
+	   sample	= passbandFilter. Pass (sample);
+	   if (!Dec48_filter. Pass (sample, &sample))
+	      continue;
+
 	   if (abs (sample) < 0.001)
 	      sample = std::complex<float> (0.001, 0.001);
 	   sample = cmul (sample, 1.0 / abs (sample));
 //
 //	handle the FM
+	   RfDC	= cmul (sample - RfDC, RfDcAlpha) + RfDC;
+//	limit the maximum DC correction.
+	   float rfDcReal = real (RfDC);
+	   float rfDcImag = imag (RfDC);
+	   if (rfDcReal > +DCRlimit)
+	      rfDcReal = +DCRlimit;
+	   else
+	   if (rfDcReal < -DCRlimit)
+	      rfDcReal = -DCRlimit;
+
+	   if (rfDcImag > +DCRlimit)
+	      rfDcImag = +DCRlimit;
+	   else
+	   if (rfDcImag < -DCRlimit)
+	      rfDcImag = -DCRlimit;
+
+	   sample -= std::complex<float> (rfDcReal, rfDcImag);
+
 	   myfm_pll. do_pll (sample);
-	   float rr = myfm_pll. getPhaseIncr ();
+	   float rr	= myfm_pll. getPhaseIncr ();
 	   sample	= H2_filter. Pass (20 * rr);
 //
-//	Decimate in two steps
-	   if (!Dec_filter. Pass (sample, &sample))
-	      continue;
-
+//      we now have a 48000 Ss signal, it is a demodulated FM
+//      signal with a bandwidth of about 4 Khz
+//      In step 1 we decimate to 16000 Ss, then interpolating
+//      to 12480 Ss, such that we have 3 samples per element
+           if (!Dec16_filter. Pass (sample, &sample))
+              continue;
+//
+	   if (dumping. load ()) {
+	      outfileBuffer [outTableIndex ++] = rr;
+	      if (outTableIndex >= 16000) {
+	         float fileBuffer [11025];
+	         for (int j = 0; j < outfileRate; j ++) {
+	            int16_t inpBase = outTable_int [j];
+	            float   inpRatio = outTable_float [j];
+	            fileBuffer [j] = outfileBuffer [inpBase + 1] * inpRatio +
+	                              outfileBuffer [inpBase] * (1 - inpRatio);
+	         }
+	         sf_writef_float (dumpFile_11025, fileBuffer, outfileRate);
+	         outfileBuffer [0] = outfileBuffer [16000];
+	         outTableIndex = 1;
+	      }
+	   }
 	   convBuffer [convIndex ++] = sample;
 	   if (convIndex <  convBufferSize + 1) 
 	      continue;
-
-
+//
+//	convert the buffer with samples on a 16000 rate to
+//	their final rate
 	   for (int j = 0; j < outSize; j ++) {
 	      int16_t inpBase = mapTable_int [j];
 	      float   inpRatio = mapTable_float [j];
@@ -221,6 +275,7 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 
 	if (!decoding.load())
 		return;
+
 	spectrumBuffer[spectrumFillPointer] = Z;
 	spectrumFillPointer ++;
 	if (spectrumFillPointer >= 2048) {
@@ -245,8 +300,9 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 //	To avoid false positives, we first compute
 //	an offset and validate by looking at the B offset
 	int	A_offset = -1, B_offset = -1, C_offset = -1;
+//
+//	synced should be 3 to assume we are synced
 	if (synced < 3) {
-	
 	   A_offset = findSync('A', amplBuffer.data(), startPos, searchWidth);
 
 	   if (A_offset < 0) {
@@ -272,7 +328,7 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 	   amount -= A_offset + lineLength - 10;
 	   synced ++;
 	   if (synced >= 3)
-		   m_form.setSynced (true);
+	      m_form.setSynced (true);
 	   return;
 	}
 //
@@ -295,11 +351,11 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 	}
 	
 	m_form.status(std::to_string(A_offset) + " " + std::to_string(B_offset));
-	amount	-= B_offset;
+	amount		-= B_offset;
 	startPos	= (startPos + B_offset) & mask;
 	int inc	= readLine (amplBuffer. data (), startPos, lineno ++);
+	amount		-= inc - 10;
 	startPos	= (startPos + inc - 10) % mask;
-	amount	-= inc - 10;
 }
 
 //
@@ -337,7 +393,6 @@ int	maxIndex = -1;
 	}
 	return maxIndex;
 }
-
 //
 int32_t SDRunoPlugin_apt::findSync (char syncer, int16_t *buffer, int pos,
 	                                     int searchLength) {
@@ -381,7 +436,6 @@ float s1 = 0, s2 = 0, s3 = 0, s4 = 0;
 	      }
 	   }
 	}
-//	m_form. status ("maxOffset "+ std::to_string (bestQ));
 	return maxOffset;
 }
 
@@ -419,7 +473,6 @@ std::vector<float> currentLine (pictureWidth);
 	   channelBuffer [lineno][i] = transl (pix, min, max, 0.0f, 255.0f);
 	   currentLine [i] = channelBuffer [lineno][i];
 	}
-	m_form. show_dumpName (std::to_string (min) + "  " + std::to_string (max));
 	m_form. showLineNumber (lineno);
 	m_form. drawLine (currentLine, lineno);
 
@@ -470,7 +523,7 @@ std::vector<float> currentLine;
 	if (decoding. load ())
 	   return;
 	if (lineno > m_form.maxLine())
-		lineno = m_form.maxLine();
+	   lineno = m_form. maxLine();
 
 	m_form. clearScreen ();
 	if (lineno & 01)
@@ -522,8 +575,6 @@ std::vector<float> currentLine_2 (pictureWidth);
 	                                      currentLine_2 [2080 - 46 + i];
 }
 //
-	
-
 void	SDRunoPlugin_apt::apt_printImage	() {
 std::vector<float> currentLine (pictureWidth);
 
@@ -581,4 +632,40 @@ void	SDRunoPlugin_apt::apt_savePicture () {
         }
         graph. save_as_file (fileName. c_str ()); 
 }
+
+void	SDRunoPlugin_apt::apt_saveFile	() {
+SF_INFO sf_info;
+
+	if (decoding. load ())
+	   return;
+
+	if (dumping. load ()) {
+	   sf_close (dumpFile_11025);
+	   m_form. dumpfileText ("dump");
+	   dumpFile_11025 = nullptr;
+	   return;
+	}
+//
+//	get a filename
+	char	*home	= getenv ("HOMEPATH");
+	nana::filebox fb (0, false);
+	fb. add_filter ("wav file", "*.wav");
+	fb. add_filter ("All Files", "*.*");
+	fb. init_path (home);
+	auto files	= fb();
+	if (files. empty ())
+	   return;
+
+	std::string fileName	= files.front (). string ();
+	sf_info. samplerate     = 11025;
+        sf_info. channels       = 1;
+        sf_info. format         = SF_FORMAT_WAV | SF_FORMAT_FLOAT;
+
+        dumpFile_11025		= sf_open (fileName. c_str (),
+                                           SFM_WRITE, &sf_info);
+        if (dumpFile_11025 != nullptr)  {
+	   m_form. dumpfileText ("write");
+	}
+}
+
 

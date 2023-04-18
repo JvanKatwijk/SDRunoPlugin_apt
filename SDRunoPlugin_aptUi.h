@@ -32,6 +32,7 @@ public:
 	void	apt_stop		();
 	void	apt_reset();
 	void	apt_savePicture		();
+	void	apt_saveFile		();
 	void	apt_reverseImage	();
 	void	apt_printImage		();
 	void	apt_setChannel		(const std::string &, int);
@@ -50,6 +51,7 @@ public:
 	void	show_dumpName		(const std::string &);
 	int	maxLine			() {return aptHeight;}
 	int	get_greySetting		();
+	void	dumpfileText		(const std::string &);
 //
 private:
 	

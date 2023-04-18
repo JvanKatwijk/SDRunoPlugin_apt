@@ -49,11 +49,13 @@ public:
 	void	apt_stop		();
 	void	apt_reset		();
 	void	apt_savePicture		();
+	void	apt_saveFile		();
 	void	apt_reverseImage	();
 	void	apt_printImage		();
 	void	apt_setChannel		(const std::string &);
 	int	pictureWidth		() {return aptWidth;}
 	int	pictureHeight		() {return aptHeight;}
+
 //
 //	coming down
 	void	updateImage		();
@@ -69,6 +71,7 @@ public:
 	void	clearWedge		();
 	void	showLineNumber		(int);
 	void	show_dumpName		(const std::string &);
+	void	dumpfileText		(const std::string &);
 
 	void	handle_greyCorrector	(int);
 	int	get_greySetting		();
@@ -126,8 +129,10 @@ private:
 	                                         (840, 40, 50, 20) };
 	nana::label	dumpName	{*this, nana::rectangle
 	                                         (900, 40, 100, 20) };
+	nana::button	dumpfileButton	{*this, nana::rectangle
+	                                         (1010, 40, 40, 20) };
         nana::label	copyRightLabel	{*this, nana::rectangle
-	                                         (1010, 40, 20, 20)};
+	                                         (1060, 40, 20, 20)};
 
 	nana::label     imageLabel	{*this, nana::rectangle
 	                                         (30, 80, aptWidth, aptHeight)};

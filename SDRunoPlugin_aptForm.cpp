@@ -391,7 +391,7 @@ void	SDRunoPlugin_aptForm::Setup () {
 	resetButton. tooltip ("reset the decoding process");
 
 	savePictureButton. caption ("save");
-	savePictureButton. events (). click ([&] () { apt_savePicture ();});
+	savePictureButton. events (). click ([&] () { apt_saveFile ();});
 	savePictureButton. tooltip ("save the current picture - in the official format - to a file as bitmap");
 
 	reverseButton. caption ("Reverse");
@@ -408,6 +408,10 @@ void	SDRunoPlugin_aptForm::Setup () {
 	                              (const nana::arg_slider &s) {
 	                                 handle_greyCorrector (greyCorrector. value ());});
 	greyCorrector. tooltip ("adjustment for the range of grey values");
+
+	dumpfileButton. caption ("dump");
+	dumpfileButton. events (). click ([&] () { apt_saveFile ();});
+	dumpfileButton. tooltip ("save the current input after FM decoding in 11025 Ss format");
 
 	delete[] borderPixels;
 	delete[] innerPixels;
@@ -610,5 +614,13 @@ void	SDRunoPlugin_aptForm::handle_greyCorrector (int v) {
 
 int	SDRunoPlugin_aptForm::get_greySetting	() {
 	return greyDifference;
+}
+
+void	SDRunoPlugin_aptForm::apt_saveFile	() {
+	m_parent. apt_saveFile ();
+}
+
+void	SDRunoPlugin_aptForm::dumpfileText	(const std::string &s) {
+	dumpfileButton. caption (s);
 }
 

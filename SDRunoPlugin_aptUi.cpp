@@ -100,6 +100,10 @@ void	SDRunoPlugin_aptUi::apt_savePicture	() {
 	m_parent. apt_savePicture ();
 }
 
+void	SDRunoPlugin_aptUi::apt_saveFile	() {
+	m_parent. apt_saveFile ();
+}
+
 void	SDRunoPlugin_aptUi::apt_reverseImage	() {
 	m_parent. apt_reverseImage ();
 }
@@ -179,6 +183,12 @@ void	SDRunoPlugin_aptUi::show_dumpName	(const std::string &s) {
 	std::lock_guard<std::mutex> l (m_lock);
 	if (m_form != nullptr)
 	   m_form -> show_dumpName (s);
+}
+
+void	SDRunoPlugin_aptUi::dumpfileText	(const std::string &s) {
+	std::lock_guard<std::mutex> l (m_lock);
+        if (m_form != nullptr)
+           m_form -> dumpfileText (s);
 }
 
 int	SDRunoPlugin_aptUi::get_greySetting	() {

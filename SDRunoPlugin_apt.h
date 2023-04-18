@@ -14,6 +14,7 @@
 #include "SDRunoPlugin_aptUi.h"
 //
 //	plugin specifics
+#include	".\sndfile.h"
 #include	"ringbuffer.h"
 #include	".\support\fir-filters.h"
 #include	".\support\fft-filters.h"
@@ -42,6 +43,7 @@ virtual
 	void	apt_stop		();
 	void	apt_reset		();
 	void	apt_savePicture		();
+	void	apt_saveFile		();
 	void	apt_reverseImage	();
 	void	apt_printImage		();
 	void	apt_setChannel		(const std::string &, int);
@@ -49,8 +51,9 @@ private:
 	bandpassFIR		passbandFilter;
 	fftFilterHilbert	H_filter;
 	fftFilterHilbert	H2_filter;
-	bandpassFIR              theFilter;
-	decimatingFIR		Dec_filter;
+	bandpassFIR		theFilter;
+	decimatingFIR		Dec48_filter;
+	decimatingFIR		Dec16_filter;
 	pllC			myfm_pll;
 
 	int                     convBufferSize;
@@ -60,6 +63,13 @@ private:
 	std::vector<float>      mapTable_float;
 	std::vector<std::complex<float>>        convBuffer;
 
+	int			outfileRate;
+        std::vector<int>	outTable_int;
+        std::vector<float>	outTable_float;
+		std::vector<float>	outfileBuffer;
+        int			outTableIndex;
+
+	SNDFILE			*dumpFile_11025;
 	std::mutex	        m_lock;
 	SDRunoPlugin_aptUi	m_form;
 	std::mutex		locker;
@@ -86,10 +96,7 @@ private:
 	void			exchange	(int, int);
 	void			apt_drawSpectrum	();
 	void			setPixel	(int, int, float);
-	float			fm_afc;
-	float			fm_cvt;
-	float			K_FM;
-	float			fmDcAlpha;
+	std::complex<float>	RfDC;
 	float			am_carr_ampl;
 	float			carrierAlpha;
 	uint32_t		mask;
@@ -105,7 +112,7 @@ private:
 	int			npos;
 	std::complex<float>	spectrumBuffer [2048];
 	int			spectrumFillPointer;
-
+	std::atomic<bool>	dumping;
 	int			synced;
 	int			startPos;
 	int			failures;
