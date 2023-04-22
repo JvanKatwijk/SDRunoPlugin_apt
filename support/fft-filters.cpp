@@ -63,7 +63,6 @@ int32_t	i;
 	delete[]	FFT_A;
 	delete[]	FFT_C;
 	delete[]	filterVector;
-	delete[]	RfilterVector;
 	delete[]	Overloop;
 	delete[]	blackman;
 }
@@ -125,7 +124,8 @@ float	sum	= 0;
            filterVector [i] = std::complex<float> (tmp [i] / sum, 0);
 
 	memset (&filterVector [filterDegree], 0,
-	                (fftSize - filterDegree) * sizeof (std::complex<float>));
+	                (fftSize - filterDegree) * sizeof (std::complex<float>
+						));
 	Fft_transform (filterVector, fftSize, false);
 	inp	= 0;
 }

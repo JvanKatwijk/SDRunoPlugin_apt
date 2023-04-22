@@ -72,7 +72,7 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 
 	m_controller	        = &controller;
 	running. store (false);
-
+	decoding.store(false);
 //	m_controller    -> RegisterStreamProcessor (0, this);
 	m_controller	-> RegisterAudioProcessor (0, this);
 	m_controller	-> SetDemodulatorType (0,
@@ -108,7 +108,7 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	am_carr_ampl	= 0;
 	carrierAlpha	= 0.001f;
 
-	decoding. store	(false);
+	
 	lineLength	= WORKING_RATE / 2;
 	pictureWidth	= APT_RATE / 2;
 	bufferLength	= npow2 (WORKING_RATE);
@@ -130,7 +130,7 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 
 	RfDC		= std::complex<float> (0, 0);
 	m_controller	-> SetCenterFrequency (0, 137912500.0);
-	m_controller	-> SetVfoFrequency (0, 137912500.0);
+//	m_controller	-> SetVfoFrequency (0, 137912500.0);
 	m_worker        = new std::thread (&SDRunoPlugin_apt::WorkerFunction,
 	                                                               this);
 }
@@ -138,8 +138,10 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	SDRunoPlugin_apt::~SDRunoPlugin_apt () {	
 	decoding. store (false);
 	running. store (false);
-	m_worker -> join ();
+	Sleep(100);
+	m_worker->join(); 
 	m_controller    -> UnregisterAudioProcessor (0, this);
+
 	delete m_worker;
 }
 
@@ -185,19 +187,23 @@ void	SDRunoPlugin_apt::HandleEvent (const UnoEvent& ev) {
 
 
 void	SDRunoPlugin_apt::WorkerFunction () {
-std::vector<std::complex<float>> res (outSize);
+//std::vector<std::complex<float>> res (outSize);
 std::complex<float> sample;
 	running. store (true);
+	decoding.store(false);
 	m_form. clearScreen ();
 	m_form. clearSpectrum ();
 	m_form. clearWedge	();
 	m_form. setSynced (false);
 	while (running. load ()) {
-	   if (inputBuffer. GetRingBufferReadAvailable () < 1) {
-	      Sleep (1);
+	   if (!decoding. load ()) {
+	      Sleep (100);
 	      continue;
 	   }
-
+	   if (inputBuffer.GetRingBufferReadAvailable() < 1) {
+		   Sleep (1);
+		   continue;
+	   }
 	   inputBuffer. getDataFromBuffer (&sample, 1);
 	   sample	= passbandFilter. Pass (sample);
 	   if (!Dec48_filter. Pass (sample, &sample))
