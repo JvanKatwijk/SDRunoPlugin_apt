@@ -325,9 +325,10 @@ void	SDRunoPlugin_aptForm::Setup () {
 	        for (int i = 0; i < spectrumHeight; i ++) {
 	           for (int j = 0; j < spectrumWidth; j ++) {
 	              float res = spectrumBuffer [i * spectrumWidth + j];
-	              graph. set_pixel (j, i, res >= 128 ?
-	                                         nana::colors::white :
-	                                         nana::colors::black);
+	              graph. set_pixel (j, i, mapColor (res));
+//	              graph. set_pixel (j, i, res >= 128 ?
+//	                                         nana::colors::white :
+//	                                         nana::colors::black);
 	          }
 	        }
 	       });
@@ -623,4 +624,9 @@ void	SDRunoPlugin_aptForm::apt_saveFile	() {
 void	SDRunoPlugin_aptForm::dumpfileText	(const std::string &s) {
 	dumpfileButton. caption (s);
 }
+
+void    SDRunoPlugin_aptForm::showOffset        (float offset) {
+        offsetLabel. caption (std::to_string (offset));
+}
+
 

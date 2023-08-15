@@ -45,7 +45,6 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	return std::complex<float>(real(x) * y, imag(x) * y);
 }
 
-      
 	SDRunoPlugin_apt::
 	            SDRunoPlugin_apt (IUnoPluginController& controller) :
 	                                   IUnoPlugin (controller),
@@ -60,15 +59,14 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	                                                INRATE, 4),
 	                                   Dec16_filter (25, 8000,
 	                                                INRATE / 4, 3),
-	                                   H_filter	(4096, 255),
 	                                   H2_filter	(8192, 255),
-	                                   theFilter	(61, 0, 3000,
+	                                   theFilter	(61, 0, 3500,
 	                                                      WORKING_RATE),
 	                                   myfm_pll	(INRATE / 4,
 	                                                 0,
-	                                                 -2 * CARRIERFREQ,
-	                                                  2 * CARRIERFREQ,
-	                                                 30000) {
+	                                                 -1 * CARRIERFREQ,
+	                                                  1 * CARRIERFREQ,
+	                                                 5000) {
 
 	m_controller	        = &controller;
 	running. store (false);
@@ -79,7 +77,9 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	                            IUnoPluginController::DemodulatorIQOUT);
 	if (m_controller->GetAudioSampleRate(0) != 192000)
 	   return;
-
+//
+//      The "converter from 16000 -> 3 * 4160 is a simple
+//      interpolator
 	int	selectedRate	= 16000;
 	int	outRate		= WORKING_RATE;
 	convBufferSize		= selectedRate / 20;
@@ -107,7 +107,7 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 
 	am_carr_ampl	= 0;
 	carrierAlpha	= 0.001f;
-
+	sampleTeller	= 0;
 	
 	lineLength	= WORKING_RATE / 2;
 	pictureWidth	= APT_RATE / 2;
@@ -138,8 +138,8 @@ std::complex<float> cmul(std::complex<float> x, float y) {
 	SDRunoPlugin_apt::~SDRunoPlugin_apt () {	
 	decoding. store (false);
 	running. store (false);
-	Sleep(100);
-	m_worker->join(); 
+	Sleep (100);
+	m_worker	-> join (); 
 	m_controller    -> UnregisterAudioProcessor (0, this);
 
 	delete m_worker;
@@ -164,8 +164,9 @@ void    SDRunoPlugin_apt::AudioProcessorProcess (channel_t channel,
 	         std::complex<float> sample =
 	                   std::complex<float> (2 * buffer [2 * i + 1],
 	                                        2 * buffer [2 * i]);
-		  
-	         inputBuffer. putDataIntoBuffer (&sample, 1);
+                 sample = passbandFilter. Pass (sample);
+                 if (Dec48_filter. Pass (sample, &sample))
+                    inputBuffer. putDataIntoBuffer (&sample, 1);
 	      }
 	   }
 	}
@@ -189,6 +190,8 @@ void	SDRunoPlugin_apt::HandleEvent (const UnoEvent& ev) {
 void	SDRunoPlugin_apt::WorkerFunction () {
 //std::vector<std::complex<float>> res (outSize);
 std::complex<float> sample;
+std::complex<float> prevSample  = std::complex<float> (0, 0);
+
 	running. store (true);
 	decoding.store(false);
 	m_form. clearScreen ();
@@ -201,13 +204,11 @@ std::complex<float> sample;
 	      continue;
 	   }
 	   if (inputBuffer.GetRingBufferReadAvailable() < 1) {
-		   Sleep (1);
-		   continue;
-	   }
-	   inputBuffer. getDataFromBuffer (&sample, 1);
-	   sample	= passbandFilter. Pass (sample);
-	   if (!Dec48_filter. Pass (sample, &sample))
+	      Sleep (20);
 	      continue;
+	   }
+
+	   inputBuffer. getDataFromBuffer (&sample, 1);
 
 	   if (abs (sample) < 0.001)
 	      sample = std::complex<float> (0.001, 0.001);
@@ -231,9 +232,16 @@ std::complex<float> sample;
 	      rfDcImag = -DCRlimit;
 
 	   sample -= std::complex<float> (rfDcReal, rfDcImag);
+	   sampleTeller ++;
+           if (sampleTeller >= 48000) {
+              m_form. showOffset (abs (RfDC));
+              sampleTeller = 0;
+           }
 
-	   myfm_pll. do_pll (sample);
-	   float rr	= myfm_pll. getPhaseIncr ();
+	   float rr	= arg (sample * conj (prevSample));
+//	   myfm_pll. do_pll (sample);
+//	   float rr	= myfm_pll. getPhaseIncr ();
+	   prevSample	= sample;
 	   sample	= H2_filter. Pass (20 * rr);
 //
 //      we now have a 48000 Ss signal, it is a demodulated FM
@@ -263,7 +271,7 @@ std::complex<float> sample;
 	      continue;
 //
 //	convert the buffer with samples on a 16000 rate to
-//	their final rate
+//	their final rate of 3 * 4160
 	   for (int j = 0; j < outSize; j ++) {
 	      int16_t inpBase = mapTable_int [j];
 	      float   inpRatio = mapTable_float [j];
@@ -309,7 +317,8 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 //
 //	synced should be 3 to assume we are synced
 	if (synced < 3) {
-	   A_offset = findSync('A', amplBuffer.data(), startPos, searchWidth);
+	   A_offset = findSync ('A', amplBuffer.data(),
+	                                    startPos, searchWidth);
 
 	   if (A_offset < 0) {
 	      startPos = (startPos + searchWidth) & mask;
@@ -317,21 +326,22 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 	      synced	= 0;
 	      return;
 	   }
-//	Validating is by first checking that we see the syncB
-	   B_offset = findSync ('B', amplBuffer. data (),
-	                             startPos + A_offset + lineLength / 2 - 10,
-	                             30);
-	   m_form.status("synced =   " + std::to_string(A_offset) + " " + std::to_string (B_offset));
+//	Validating is by first checking that we see the sync on the next line as well
+	   B_offset = findSync ('A', amplBuffer. data (),
+	                             startPos + A_offset + lineLength - 15,
+	                             50);
+	   m_form.status ("synced =   " + std::to_string(A_offset) +
+	                               " " + std::to_string (B_offset));
 
-	   if ((B_offset < 0) || (B_offset > 30)) {
+	   if ((B_offset < 0) || (B_offset > 50)) {	// no match
 	      startPos = (startPos + searchWidth) & mask;
 	      amount -= searchWidth;
 	      synced	= 0;
 	      return;
 	   }
 
-	   startPos = (startPos + A_offset + lineLength - 10) & mask;
-	   amount -= A_offset + lineLength - 10;
+	   startPos = (startPos + A_offset + lineLength - 20) & mask;
+	   amount -= A_offset + lineLength - 20;
 	   synced ++;
 	   if (synced >= 3)
 	      m_form.setSynced (true);
@@ -339,11 +349,12 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 	}
 //
 //	if here, we are apparently "in sync"
-	A_offset		= findStart (amplBuffer. data (),
-	                                               startPos, 20);
-	B_offset	 	= findSync ('A',  amplBuffer. data (),
-	                                               startPos, 20);
-	if (B_offset == -1) {
+	A_offset	= findSync ('A', amplBuffer. data (),
+	                                              startPos, 50);
+	B_offset 	= findSync ('A',  amplBuffer. data (),
+	                                  startPos + lineLength - 20, 50);
+
+	if ((A_offset == -1) || (B_offset == -1)) {
 	   failures ++;
 	   if (failures > 3) {
 	      synced -= 1;
@@ -353,16 +364,25 @@ void	SDRunoPlugin_apt::processSample (std::complex<float> Z) {
 		  m_form.setSynced(false);
 	      return;
 	   }
-	   B_offset = 10;
+	   A_offset = 20;
 	}
+	else
+	   failures = 0;
 	
-	m_form.status(std::to_string(A_offset) + " " + std::to_string(B_offset));
-	amount		-= B_offset;
-	startPos	= (startPos + B_offset) & mask;
-	int inc	= readLine (amplBuffer. data (), startPos, lineno ++);
-	amount		-= inc - 10;
-	startPos	= (startPos + inc - 10) % mask;
+	m_form. status (std::string("Linelength " +
+		                std::to_string(lineLength - 20 + B_offset)));
+	amount          -= A_offset;
+        startPos        = (startPos + A_offset) & mask;
+
+        int segmentLength       = lineLength - 20 + B_offset;
+//      readLine reads and processes a line
+//      it returns the amount of samples used, so
+//      use that to determine where to look for the start of the next line
+        int inc         = readLine (amplBuffer. data (), startPos, lineno ++);
+        amount          -= inc - 20;
+        startPos        = (startPos + inc - 20) % mask;
 }
+
 
 //
 //	Looking at buffer [pos] and on, we check whether or not

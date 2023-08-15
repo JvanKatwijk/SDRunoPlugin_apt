@@ -49,7 +49,6 @@ virtual
 	void	apt_setChannel		(const std::string &, int);
 private:
 	bandpassFIR		passbandFilter;
-	fftFilterHilbert	H_filter;
 	fftFilterHilbert	H2_filter;
 	bandpassFIR		theFilter;
 	decimatingFIR		Dec48_filter;
@@ -69,6 +68,7 @@ private:
 		std::vector<float>	outfileBuffer;
         int			outTableIndex;
 
+	int			sampleTeller;
 	SNDFILE			*dumpFile_11025;
 	std::mutex	        m_lock;
 	SDRunoPlugin_aptUi	m_form;

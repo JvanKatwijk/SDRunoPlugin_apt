@@ -72,7 +72,7 @@ public:
 	void	showLineNumber		(int);
 	void	show_dumpName		(const std::string &);
 	void	dumpfileText		(const std::string &);
-
+	void	showOffset		(float);
 	void	handle_greyCorrector	(int);
 	int	get_greySetting		();
 private:
@@ -104,25 +104,27 @@ private:
 	// TODO: Now add your UI controls here
 //
 	nana::combox	channels	{*this, nana::rectangle
-	                                         (40, 40, 80, 20) };
+	                                         (40, 40, 70, 20) };
 	nana::button	startButton	{*this, nana::rectangle
-	                                         (130, 40, 50, 20) };
+	                                         (120, 40, 45, 20) };
 	nana::button	stopButton	{*this, nana::rectangle
-	                                         (190, 40, 50, 20) };
+	                                         (175, 40, 45, 20) };
 	nana::button	savePictureButton{ *this, nana::rectangle
-	                                         (250, 40, 50, 20) };
+	                                         (230, 40, 45, 20) };
 	nana::button	resetButton	{*this, nana::rectangle
-	                                         (310, 40, 50, 20) };
+	                                         (385, 40, 45, 20) };
 	nana::button	reverseButton	{*this, nana::rectangle
-	                                         (370, 40, 50, 20) };
+	                                         (340, 40, 45, 20) };
 	nana::button	printButton	{*this, nana::rectangle
-	                                         (430, 40, 50, 20)};
+	                                         (395, 40, 45, 20)};
+	nana::label	offsetLabel	{*this, nana::rectangle
+	                                         (450, 40, 45, 20)};
 	nana::label	syncedLabel	{*this, nana::rectangle
-	                                         (490, 40, 40, 20)};
+	                                         (505, 40, 40, 20)};
 	nana::label	statusLabel	{*this, nana::rectangle
-	                                         (540, 40, 120, 20) };
+	                                         (555, 40, 90, 20) };
 	nana::label	lineNumber	{*this, nana::rectangle
-	                                         (650, 40, 50, 20) };
+	                                         (655, 40, 45, 20) };
 	nana::slider	greyCorrector	{*this, nana::rectangle 
 	                                         (710, 40, 120, 20) };
 	nana::label	greyLabel	{*this, nana::rectangle
@@ -154,7 +156,6 @@ private:
 	IUnoPluginController	& m_controller;
 	nana::color mapColor (uint8_t c);
 	int		greyDifference;
-
 };
 
 

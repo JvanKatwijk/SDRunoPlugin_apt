@@ -52,6 +52,7 @@ public:
 	int	maxLine			() {return aptHeight;}
 	int	get_greySetting		();
 	void	dumpfileText		(const std::string &);
+	void	showOffset		(float);
 //
 private:
 	

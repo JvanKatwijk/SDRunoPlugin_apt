@@ -198,3 +198,10 @@ int	SDRunoPlugin_aptUi::get_greySetting	() {
 	return 0;
 }
 
+void    SDRunoPlugin_aptUi::showOffset  (float x) {
+std::lock_guard<std::mutex> l (m_lock);
+        if (m_form != nullptr)
+           m_form -> showOffset (x);
+}
+
+
